@@ -14,9 +14,9 @@ and the Flutter guide for
 A performant and highly versatile Flutter package for media selection. 
 
 ## Features
-• Unified Flutter UI on both mobile platforms.
-• Ability to select a mixed (photo/video) set of media.
-• Ability to preview selected media.
+• Unified Flutter UI on both mobile platforms.<br>
+• Ability to select a mixed (photo/video) set of media.<br>
+• Ability to preview selected media.<br>
 
 ## Getting started
 ## Usage
