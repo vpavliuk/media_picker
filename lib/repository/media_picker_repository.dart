@@ -1,5 +1,3 @@
-import 'dart:async';
-
 import 'package:media_picker/bloc/media_picker_item_range.dart';
 
 final class MediaPickerAlbumInfo {
@@ -14,5 +12,6 @@ final class MediaPickerAlbumInfo {
 
 abstract class MediaPickerRepository {
   Stream<MediaPickerAlbumInfo> get masterAlbumStream;
+
   Future<void> requestThumbnails({required MediaPickerItemRange range});
 }

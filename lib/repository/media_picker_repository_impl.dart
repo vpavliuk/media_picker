@@ -13,26 +13,17 @@ import 'media_picker_repository.dart';
 final class MediaPickerRepositoryImpl implements MediaPickerRepository {
   MediaPickerRepositoryImpl();
 
-  StreamController<MediaPickerAlbumInfo>? _thumbnailStreamController;
+  late final _thumbnailStreamController =
+      StreamController<MediaPickerAlbumInfo>(
+          onListen: () => _setUpIsolateIfNeeded());
 
   final _isolateReceivePort = ReceivePort();
-  late SendPort _isolateSendPort;
+  late final SendPort _isolateSendPort;
   bool _isIsolateSetUp = false;
 
   @override
-  Stream<MediaPickerAlbumInfo> get masterAlbumStream {
-    StreamController<MediaPickerAlbumInfo>? controller =
-        _thumbnailStreamController;
-    if (controller == null) {
-      controller = StreamController<MediaPickerAlbumInfo>(
-        onListen: () async {
-          await _setUpIsolateIfNeeded();
-        },
-      );
-      _thumbnailStreamController = controller;
-    }
-    return controller.stream;
-  }
+  Stream<MediaPickerAlbumInfo> get masterAlbumStream =>
+      _thumbnailStreamController.stream;
 
   @override
   Future<void> requestThumbnails({required MediaPickerItemRange range}) async {
@@ -49,8 +40,7 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
     RootIsolateToken rootIsolateToken = RootIsolateToken.instance!;
     final albums = await PhotoGallery.listAlbums();
     final masterAlbum = albums.firstWhereOrNull((album) => album.isAllAlbum);
-    final controller = _thumbnailStreamController;
-    if (controller == null || masterAlbum == null) {
+    if (masterAlbum == null) {
       return;
     }
 
@@ -58,21 +48,17 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
       itemCount: masterAlbum.count,
       thumbnails: const {},
     );
-    controller.add(initialAlbumInfo);
+    _thumbnailStreamController.add(initialAlbumInfo);
 
     _isolateReceivePort.listen((message) {
       if (message is SendPort) {
         _isolateSendPort = message;
       } else if (message is Map<int, String>) {
-        final controller = _thumbnailStreamController;
-        if (controller == null) {
-          return;
-        }
         final albumInfo = MediaPickerAlbumInfo(
           itemCount: masterAlbum.count,
           thumbnails: message,
         );
-        controller.add(albumInfo);
+        _thumbnailStreamController.add(albumInfo);
       }
     });
 
@@ -91,36 +77,168 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
     BackgroundIsolateBinaryMessenger.ensureInitialized(input.rootIsolateToken);
 
     final Map<int, String> preparedThumbnails = {};
-    final List<int> pendingThumbnails = [];
+    final Set<int> pendingMedia = {};
 
     final receivePort = ReceivePort();
     receivePort.listen((message) async {
       if (message is! MediaPickerItemRange) {
         return;
       }
-      final mediaPage = await input.album
-          .listMedia(skip: message.start, take: message.length);
-      for (final (index, medium) in mediaPage.items.indexed) {
-        final absoluteIndex = mediaPage.start + index;
-        if (preparedThumbnails[absoluteIndex] != null ||
-            pendingThumbnails.contains(absoluteIndex)) {
-          continue;
-        }
-        pendingThumbnails.add(absoluteIndex);
-        final tmpDirectory = await getTemporaryDirectory();
-        final filePath =
-            '${tmpDirectory.path}${Platform.pathSeparator}thumb_$absoluteIndex.jpg';
-        final file = File(filePath);
-        final thumbnailData =
-            await medium.getThumbnail(height: 180, highQuality: true);
-        await file.writeAsBytes(thumbnailData);
-        pendingThumbnails.remove(absoluteIndex);
-        preparedThumbnails[mediaPage.start + index] = filePath;
-        input.sendPort.send(preparedThumbnails);
-      }
+      await _handleThumbnailsRequest(
+        message,
+        album: input.album,
+        preparedThumbnails: preparedThumbnails,
+        pendingMedia: pendingMedia,
+        sendPort: input.sendPort,
+      );
     });
+
     input.sendPort.send(receivePort.sendPort);
   }
+
+  static Future<void> _handleThumbnailsRequest(
+    MediaPickerItemRange requestedRange, {
+    required Album album,
+    required Map<int, String> preparedThumbnails,
+    required Set<int> pendingMedia,
+    required SendPort sendPort,
+  }) async {
+    const maxRangeLength = 25;
+    final smallRanges = _breakDownItemRange(
+      requestedRange,
+      preparedThumbnails: preparedThumbnails,
+      pendingMedia: Set.unmodifiable(pendingMedia),
+      maxLength: maxRangeLength,
+    );
+
+    pendingMedia.addAll(smallRanges.expand((r) => r.allIndices));
+
+    final Map<int, Medium> mediaItems = {};
+    for (final range in smallRanges) {
+      final items = await _mediaItemsFromRange(range, album: album);
+      mediaItems.addAll(items);
+    }
+
+    await _handleMediaItems(
+      Map.unmodifiable(mediaItems),
+      album: album,
+      preparedThumbnails: preparedThumbnails,
+      pendingMedia: pendingMedia,
+      sendPort: sendPort,
+    );
+  }
+
+  static Iterable<MediaPickerItemRange> _breakDownItemRange(
+    MediaPickerItemRange itemRange, {
+    required Map<int, String> preparedThumbnails,
+    required Set<int> pendingMedia,
+    required int maxLength,
+  }) sync* {
+    int? currentSmallRangeStart;
+    for (final index in itemRange.allIndices) {
+      if (preparedThumbnails[index] != null || pendingMedia.contains(index)) {
+        if (currentSmallRangeStart != null) {
+          yield MediaPickerItemRange(
+            start: currentSmallRangeStart,
+            length: index - currentSmallRangeStart,
+          );
+          currentSmallRangeStart = null;
+        }
+        continue;
+      }
+      if (currentSmallRangeStart == null) {
+        currentSmallRangeStart = index;
+      } else {
+        final currentLength = index - currentSmallRangeStart;
+        if (currentLength == maxLength) {
+          yield MediaPickerItemRange(
+            start: currentSmallRangeStart,
+            length: maxLength,
+          );
+          currentSmallRangeStart = index;
+        }
+      }
+    }
+    if (currentSmallRangeStart != null) {
+      yield MediaPickerItemRange(
+        start: currentSmallRangeStart,
+        length: itemRange.end - currentSmallRangeStart + 1,
+      );
+    }
+  }
+
+  static Future<Map<int, Medium>> _mediaItemsFromRange(
+      MediaPickerItemRange itemRange,
+      {required Album album}) async {
+    final Map<int, Medium> mediaItems = {};
+    final mediaPage = await album.listMedia(
+      skip: itemRange.start,
+      take: itemRange.length,
+    );
+    for (final (index, medium) in mediaPage.items.indexed) {
+      mediaItems[itemRange.start + index] = medium;
+    }
+    return mediaItems;
+  }
+
+  static Future<void> _handleMediaItems(
+    Map<int, Medium> mediaItems, {
+    required Album album,
+    required Map<int, String> preparedThumbnails,
+    required Set<int> pendingMedia,
+    required SendPort sendPort,
+  }) async {
+    // Lo Res Thumbnails:
+    final loResStream = _makeThumbnails(mediaItems: mediaItems, isHiRes: false);
+    await for (final entry in loResStream) {
+      preparedThumbnails[entry.key] = entry.value;
+      pendingMedia.remove(entry.key);
+      _emitState(preparedThumbnails, port: sendPort);
+    }
+
+    // Hi Res Thumbnails:
+    final hiResStream = _makeThumbnails(mediaItems: mediaItems, isHiRes: true);
+    await for (final entry in hiResStream) {
+      preparedThumbnails[entry.key] = entry.value;
+      _emitState(preparedThumbnails, port: sendPort);
+    }
+  }
+
+  static Stream<MapEntry<int, String>> _makeThumbnails({
+    required Map<int, Medium> mediaItems,
+    required bool isHiRes,
+  }) async* {
+    for (final entry in mediaItems.entries) {
+      final medium = entry.value;
+      final index = entry.key;
+      final filePath =
+          await _generateThumbnail(medium, index: index, isHiRes: isHiRes);
+      yield MapEntry(index, filePath);
+    }
+  }
+
+  static Future<String> _generateThumbnail(
+    Medium medium, {
+    required int index,
+    required bool isHiRes,
+  }) async {
+    final tmpDirectory = await getTemporaryDirectory();
+    final hiResSuffix = isHiRes ? "_hiRes" : "";
+    final filePath =
+        '${tmpDirectory.path}${Platform.pathSeparator}thumb_$index$hiResSuffix.jpg';
+    final file = File(filePath);
+    // TODO: Figure out image size:
+    const thumbnailSize = 276;
+    final thumbnailData = await medium.getThumbnail(
+      height: thumbnailSize,
+      highQuality: isHiRes,
+    );
+    await file.writeAsBytes(thumbnailData);
+    return filePath;
+  }
+
+  static void _emitState(Map<int, String> state, {required SendPort port}) =>
+      port.send(Map<int, String>.unmodifiable(state));
 }
 
 final class _IsolateInput {
