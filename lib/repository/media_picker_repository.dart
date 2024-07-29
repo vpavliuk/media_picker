@@ -13,5 +13,8 @@ final class MediaPickerAlbumInfo {
 abstract class MediaPickerRepository {
   Stream<MediaPickerAlbumInfo> get masterAlbumStream;
 
-  Future<void> requestThumbnails({required MediaPickerItemRange range});
+  Future<void> requestThumbnails({
+    required MediaPickerItemRange range,
+    required bool handleInReverse,
+  });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -26,9 +27,12 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
       _thumbnailStreamController.stream;
 
   @override
-  Future<void> requestThumbnails({required MediaPickerItemRange range}) async {
+  Future<void> requestThumbnails({
+    required MediaPickerItemRange range,
+    required bool handleInReverse,
+  }) async {
     await _setUpIsolateIfNeeded();
-    _isolateSendPort.send(range);
+    _isolateSendPort.send(_IsolateThumbnailRequest(range, handleInReverse));
   }
 
   Future<void> _setUpIsolateIfNeeded() async {
@@ -81,7 +85,7 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
 
     final receivePort = ReceivePort();
     receivePort.listen((message) async {
-      if (message is! MediaPickerItemRange) {
+      if (message is! _IsolateThumbnailRequest) {
         return;
       }
       await _handleThumbnailsRequest(
@@ -97,7 +101,7 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
   }
 
   static Future<void> _handleThumbnailsRequest(
-    MediaPickerItemRange requestedRange, {
+    _IsolateThumbnailRequest request, {
     required Album album,
     required Map<int, String> preparedThumbnails,
     required Set<int> pendingMedia,
@@ -105,7 +109,8 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
   }) async {
     const maxRangeLength = 25;
     final smallRanges = _breakDownItemRange(
-      requestedRange,
+      request.range,
+      reverseOrder: request.handleInReverse,
       preparedThumbnails: preparedThumbnails,
       pendingMedia: Set.unmodifiable(pendingMedia),
       maxLength: maxRangeLength,
@@ -113,14 +118,18 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
 
     pendingMedia.addAll(smallRanges.expand((r) => r.allIndices));
 
-    final Map<int, Medium> mediaItems = {};
+    final comparator = request.handleInReverse
+        ? (int a, int b) => b.compareTo(a)
+        : (int a, int b) => a.compareTo(b);
+    // Using SplayTreeMap to support definitive order of thumbnails being generated
+    final mediaItems = SplayTreeMap<int, Medium>(comparator);
     for (final range in smallRanges) {
       final items = await _mediaItemsFromRange(range, album: album);
       mediaItems.addAll(items);
     }
 
     await _handleMediaItems(
-      Map.unmodifiable(mediaItems),
+      mediaItems,
       album: album,
       preparedThumbnails: preparedThumbnails,
       pendingMedia: pendingMedia,
@@ -130,17 +139,21 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
 
   static Iterable<MediaPickerItemRange> _breakDownItemRange(
     MediaPickerItemRange itemRange, {
+    required bool reverseOrder,
     required Map<int, String> preparedThumbnails,
     required Set<int> pendingMedia,
     required int maxLength,
-  }) sync* {
+  }) {
+    final List<MediaPickerItemRange> subRanges = [];
     int? currentSmallRangeStart;
     for (final index in itemRange.allIndices) {
       if (preparedThumbnails[index] != null || pendingMedia.contains(index)) {
         if (currentSmallRangeStart != null) {
-          yield MediaPickerItemRange(
-            start: currentSmallRangeStart,
-            length: index - currentSmallRangeStart,
+          subRanges.add(
+            MediaPickerItemRange(
+              start: currentSmallRangeStart,
+              length: index - currentSmallRangeStart,
+            ),
           );
           currentSmallRangeStart = null;
         }
@@ -151,20 +164,27 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
       } else {
         final currentLength = index - currentSmallRangeStart;
         if (currentLength == maxLength) {
-          yield MediaPickerItemRange(
-            start: currentSmallRangeStart,
-            length: maxLength,
+          subRanges.add(
+            MediaPickerItemRange(
+              start: currentSmallRangeStart,
+              length: maxLength,
+            ),
           );
           currentSmallRangeStart = index;
         }
       }
     }
     if (currentSmallRangeStart != null) {
-      yield MediaPickerItemRange(
-        start: currentSmallRangeStart,
-        length: itemRange.end - currentSmallRangeStart + 1,
+      subRanges.add(
+        MediaPickerItemRange(
+          start: currentSmallRangeStart,
+          length: itemRange.end - currentSmallRangeStart + 1,
+        ),
       );
     }
+    return reverseOrder
+        ? List.unmodifiable(subRanges.reversed)
+        : List.unmodifiable(subRanges);
   }
 
   static Future<Map<int, Medium>> _mediaItemsFromRange(
@@ -182,7 +202,7 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
   }
 
   static Future<void> _handleMediaItems(
-    Map<int, Medium> mediaItems, {
+    SplayTreeMap<int, Medium> mediaItems, {
     required Album album,
     required Map<int, String> preparedThumbnails,
     required Set<int> pendingMedia,
@@ -205,7 +225,7 @@ final class MediaPickerRepositoryImpl implements MediaPickerRepository {
   }
 
   static Stream<MapEntry<int, String>> _makeThumbnails({
-    required Map<int, Medium> mediaItems,
+    required SplayTreeMap<int, Medium> mediaItems,
     required bool isHiRes,
   }) async* {
     for (final entry in mediaItems.entries) {
@@ -251,4 +271,11 @@ final class _IsolateInput {
     required this.rootIsolateToken,
     required this.sendPort,
   });
+}
+
+final class _IsolateThumbnailRequest {
+  final MediaPickerItemRange range;
+  final bool handleInReverse;
+
+  const _IsolateThumbnailRequest(this.range, this.handleInReverse);
 }
