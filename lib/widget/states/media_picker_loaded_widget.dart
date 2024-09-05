@@ -24,22 +24,23 @@ class _MediaPickerLoadedWidget extends State<MediaPickerLoadedWidget> {
   late ScrollController _scrollController;
   double _width = 0.0;
   double _height = 0.0;
-  static const int _columnCount = 5;
+  static const int _columnCount = 4;
   MediaPickerItemRange _visibleRange = MediaPickerItemRange.empty;
 
   // use this one if the listItem's height is known
   // or width in case of a horizontal list
   void _onScroll() {
     double scrollOffset = _scrollController.offset;
-    const itemHeight = 60.0;
+    const itemHeight = 94.25; // Figure out correct height
     int firstVisibleItemIndex = scrollOffset < itemHeight
         ? 0
-        : (scrollOffset / (itemHeight * _columnCount)).ceil();
+        : (scrollOffset / itemHeight).floor() * _columnCount;
     final newVisibleRange =
-        MediaPickerItemRange(start: firstVisibleItemIndex, length: 75);
+        MediaPickerItemRange(start: firstVisibleItemIndex, length: 32);
     if (newVisibleRange == _visibleRange) {
       return;
     }
+    print("Computed range: ${newVisibleRange.toString()}");
     _visibleRange = newVisibleRange;
     widget.onVisibleItemRangeChanged(newVisibleRange);
   }
@@ -64,35 +65,36 @@ class _MediaPickerLoadedWidget extends State<MediaPickerLoadedWidget> {
       _height = constraints.maxHeight;
       return GridView.builder(
         controller: _scrollController,
-        gridDelegate:
-            const SliverGridDelegateWithFixedCrossAxisCount(crossAxisCount: _columnCount, mainAxisSpacing: 2, crossAxisSpacing: 2, childAspectRatio: 1),
+        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+          crossAxisCount: _columnCount,
+          mainAxisSpacing: 2,
+          crossAxisSpacing: 2,
+          childAspectRatio: 1,
+        ),
+        cacheExtent: 3000.0,
         itemBuilder: (_, index) {
           final image = widget.preparedThumbnails[index];
           if (image == null) {
-            return GridTile(child: Container(color: Colors.grey, child: Visibility(child: const CircularProgressIndicator(color: Colors.red,), visible: index % 10 == 0,),),);
+            return Container(
+              color: Colors.grey,
+              child: Text(
+                index.toString(),
+                style: const TextStyle(color: Colors.white),
+              ),
+            );
           } else {
             return GridTile(
-                child: Image.file(File(image), fit: BoxFit.cover));
+              header: Text(index.toString(),
+                  style: const TextStyle(color: Colors.white)),
+              child: Image.file(
+                File(image),
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+              ),
+            );
           }
         },
         itemCount: widget.itemCount,
-      );
-      return ListView.separated(
-        controller: _scrollController,
-        itemCount: widget.itemCount,
-        //itemExtent: 300.0,
-        itemBuilder: (BuildContext context, int index) {
-          final image = widget.preparedThumbnails[index];
-          if (image == null) {
-            return Container(color: Colors.grey, height: 300.0);
-          } else {
-            return SizedBox(
-                height: 300.0,
-                child: Image.file(File(image), fit: BoxFit.fitHeight));
-          }
-        },
-        separatorBuilder: (_, __) =>
-            const Divider(color: Colors.white, thickness: 20),
       );
     });
   }
