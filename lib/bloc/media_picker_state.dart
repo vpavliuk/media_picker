@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:equatable/equatable.dart';
 
 class MediaPickerState extends Equatable {
@@ -18,7 +20,7 @@ final class MediaPickerLoadedState extends MediaPickerState {
   });
 
   final int count;
-  final Map<int, String> preparedThumbnails;
+  final Map<int, Uint8List> preparedThumbnails;
 
   @override
   List<Object?> get props => [count, preparedThumbnails];

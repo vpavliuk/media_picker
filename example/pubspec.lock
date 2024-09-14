@@ -359,6 +359,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "5.5.1"
+  worker_manager:
+    dependency: transitive
+    description:
+      name: worker_manager
+      sha256: bee503f785e6e3a6354a61197ab5a5dce563c228a5a5e89e878dd90e113a9ce3
+      url: "https://pub.dev"
+    source: hosted
+    version: "7.1.0"
   xdg_directories:
     dependency: transitive
     description:
