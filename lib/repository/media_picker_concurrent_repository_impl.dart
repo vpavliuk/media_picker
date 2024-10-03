@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:typed_data';
-import 'dart:ui';
 
 import 'package:flutter/services.dart';
 import 'package:photo_gallery/photo_gallery.dart';
@@ -152,7 +150,7 @@ final class MediaPickerConcurrentRepositoryImpl
   }
 
   Future<void> _handleMediaItems(SplayTreeMap<int, Medium> mediaItems) async {
-    // Lo Res Thumbnails:
+    // Hi Res Thumbnails:
     final loResStream = _makeThumbnails(
       mediaItems: mediaItems,
       isHiRes: true,
