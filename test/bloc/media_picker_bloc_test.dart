@@ -40,20 +40,20 @@ void main() {
     await Future.delayed(const Duration(milliseconds: 20));
 
     verifyNever(
-      () => mockRepository.requestThumbnails(range: any(named: 'range')),
+      () => mockRepository.requestThumbnails(
+          range: any(named: 'range'), handleInReverse: false),
     );
   });
 
   test('On view loaded, when the album stream emits a single value', () async {
     // Arrange
     const albumItemCount = 12;
-    when(() => mockRepository.masterAlbumStream)
-        .thenAnswer((_) => Stream.value(
-              const MediaPickerAlbumInfo(
-                itemCount: albumItemCount,
-                thumbnails: {},
-              ),
-            ));
+    when(() => mockRepository.masterAlbumStream).thenAnswer((_) => Stream.value(
+          const MediaPickerAlbumInfo(
+            itemCount: albumItemCount,
+            thumbnails: {},
+          ),
+        ));
     const expectedState = MediaPickerLoadedState(
       count: albumItemCount,
       preparedThumbnails: {},
@@ -65,7 +65,10 @@ void main() {
     // Assert
     await expectLater(sut.stream, emits(expectedState));
     verifyNever(
-      () => mockRepository.requestThumbnails(range: any(named: 'range')),
+      () => mockRepository.requestThumbnails(
+        range: any(named: 'range'),
+        handleInReverse: false,
+      ),
     );
   });
 }

@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -6,7 +6,7 @@ import '../../bloc/media_picker_item_range.dart';
 
 final class MediaPickerLoadedWidget extends StatefulWidget {
   final int itemCount;
-  final Map<int, String> preparedThumbnails;
+  final Map<int, Uint8List> preparedThumbnails;
   final ValueChanged<MediaPickerItemRange> onVisibleItemRangeChanged;
 
   const MediaPickerLoadedWidget({
@@ -86,8 +86,8 @@ class _MediaPickerLoadedWidget extends State<MediaPickerLoadedWidget> {
             return GridTile(
               header: Text(index.toString(),
                   style: const TextStyle(color: Colors.white)),
-              child: Image.file(
-                File(image),
+              child: Image.memory(
+                image,
                 fit: BoxFit.cover,
                 gaplessPlayback: true,
               ),

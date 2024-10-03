@@ -1,8 +1,10 @@
+import 'dart:typed_data';
+
 import 'package:media_picker/bloc/media_picker_item_range.dart';
 
 final class MediaPickerAlbumInfo {
   final int itemCount;
-  final Map<int, String> thumbnails;
+  final Map<int, Uint8List> thumbnails;
 
   const MediaPickerAlbumInfo({
     required this.itemCount,
